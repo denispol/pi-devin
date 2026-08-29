@@ -7,10 +7,11 @@ import {
 } from "./wire.js";
 
 /**
- * Cognition version-gates GetChatMessage against a known Windsurf/Devin Desktop
- * release. The Devin CLI build id (`3000.4.25`) is not that string and the
- * server answers: "Your Windsurf version is out of date."
- * Prefer the installed Devin.app product.json, then a current desktop release.
+ * Cognition gates Devin Local-only models (every GPT-5.6 variant: Sol, Terra,
+ * Luna) by client ide name. With ide="windsurf" GetChatMessage rejects them
+ * with "This model is only in Devin Local."; with ide="devin-desktop" the
+ * server serves them and the response header echoes the exact model
+ * (verified: "GPT-5.6 Sol High Thinking" for gpt-5-6-sol-high, 2026-08-29).
  */
 const FALLBACK_WINDSURF_VERSION = "3.6.27";
 const PRODUCT_JSON =
@@ -29,7 +30,7 @@ function desktopWindsurfVersion(): string {
 }
 
 export const CLIENT_VERSION = desktopWindsurfVersion();
-export const CLIENT_IDE = "windsurf";
+export const CLIENT_IDE = "devin-desktop";
 
 export interface MetadataInput {
   apiKey: string;
