@@ -1,4 +1,11 @@
-import type { Context, Message, Tool } from "@earendil-works/pi-ai";
+import {
+  collapseSystemMessages,
+  getCurrentSystemPrompt,
+  getCurrentTools,
+  type Message,
+  type Tool,
+  type TranscriptContext,
+} from "@earendil-works/pi-ai";
 
 export interface ContentPart {
   type: "text" | "image";
@@ -39,13 +46,17 @@ function userContent(content: Message["content"]): string | ContentPart[] {
   return parts;
 }
 
-export function mapContextToChat(context: Context): MappedChat {
+export function mapContextToChat(context: TranscriptContext): MappedChat {
+  // Devin takes one leading system message and knows no mid-conversation system
+  // message, so replay the transcript deltas into the leading one first.
+  const transcript = collapseSystemMessages(context);
+  const systemPrompt = getCurrentSystemPrompt(transcript.messages);
   const messages: ChatHistoryItem[] = [];
-  if (context.systemPrompt) {
-    messages.push({ role: "system", content: context.systemPrompt });
+  if (systemPrompt) {
+    messages.push({ role: "system", content: systemPrompt });
   }
 
-  for (const message of context.messages) {
+  for (const message of transcript.messages) {
     if (message.role === "user") {
       messages.push({ role: "user", content: userContent(message.content) });
       continue;
@@ -86,7 +97,7 @@ export function mapContextToChat(context: Context): MappedChat {
     }
   }
 
-  const tools: ToolDef[] = (context.tools ?? []).map((tool: Tool) => ({
+  const tools: ToolDef[] = getCurrentTools(transcript.messages).map((tool: Tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
