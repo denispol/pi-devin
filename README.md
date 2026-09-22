@@ -41,7 +41,7 @@ From npm:
 pi install npm:pi-devin
 ```
 
-The published `pi-devin@0.1.2` predates Pi 0.86 support. For Pi 0.86+, use the git install above until a newer npm release is available.
+Version 0.2.0 requires Pi 0.86+ and Node 22.19+. It restores system instructions and tools on the current Pi transcript format and sends system instructions through Devin's dedicated prompt field. Version 0.1.2 predates Pi 0.86 support.
 
 `pi-devin-local` is a separate npm package maintained in the [mizorewww/pi-devin fork](https://github.com/mizorewww/pi-devin). Changes merged here do not update that package. Install only one: both packages register the `devin` provider, so their registrations can overwrite each other.
 
