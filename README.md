@@ -16,9 +16,9 @@ Those models are available through the local Devin CLI. This package uses that C
 
 ## Requirements
 
-- Pi Coding Agent 0.80+
+- Pi Coding Agent 0.86+
 - A signed-in [Devin CLI](https://docs.devin.ai/cli) (`devin auth status`)
-- Node 18+
+- Node 22.19+ (required by Pi 0.86)
 
 The CLI binary is resolved in this order:
 
@@ -35,11 +35,15 @@ From git:
 pi install git:github.com/kashyab12/pi-devin
 ```
 
-After npm publish:
+From npm:
 
 ```bash
 pi install npm:pi-devin
 ```
+
+The published `pi-devin@0.1.2` predates Pi 0.86 support. For Pi 0.86+, use the git install above until a newer npm release is available.
+
+`pi-devin-local` is a separate npm package maintained in the [mizorewww/pi-devin fork](https://github.com/mizorewww/pi-devin). Changes merged here do not update that package. Install only one: both packages register the `devin` provider, so their registrations can overwrite each other.
 
 Local checkout:
 
