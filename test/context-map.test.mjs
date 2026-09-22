@@ -18,8 +18,8 @@ test("preserves the prompt and tools from a normalized transcript", () => {
     messages: [{ role: "user", content: "Read README", timestamp: 1 }],
   });
   assert.deepEqual(mapContextToChat(context), {
+    systemPrompt: "Inspect the repository.",
     messages: [
-      { role: "system", content: "Inspect the repository." },
       { role: "user", content: "Read README" },
     ],
     tools: [read],
@@ -36,8 +36,8 @@ test("applies later instruction, section, and tool changes", () => {
     ],
   };
   assert.deepEqual(mapContextToChat(context), {
+    systemPrompt: "Inspect the repository.\n\nUse bash.\n\nDo not edit.",
     messages: [
-      { role: "system", content: "Inspect the repository.\n\nUse bash.\n\nDo not edit." },
       { role: "user", content: "Continue" },
     ],
     tools: [bash],
@@ -45,5 +45,9 @@ test("applies later instruction, section, and tool changes", () => {
 });
 
 test("accepts an empty transcript", () => {
-  assert.deepEqual(mapContextToChat(normalizeContext({ messages: [] })), { messages: [], tools: [] });
+  assert.deepEqual(mapContextToChat(normalizeContext({ messages: [] })), {
+    systemPrompt: undefined,
+    messages: [],
+    tools: [],
+  });
 });

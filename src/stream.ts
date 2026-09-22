@@ -23,10 +23,9 @@ import {
   iterFields,
 } from "./wire.js";
 
-const SOURCE_BY_ROLE: Record<string, number> = {
+const SOURCE_BY_ROLE: Record<ChatHistoryItem["role"], number> = {
   user: 1,
   assistant: 2,
-  system: 1,
   tool: 4,
 };
 
@@ -48,40 +47,6 @@ export type CloudChatEvent =
 function normalizeContent(content: string | ContentPart[]): ContentPart[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
   return content;
-}
-
-function collapseSystemIntoUser(messages: ChatHistoryItem[]): ChatHistoryItem[] {
-  const out: ChatHistoryItem[] = [];
-  let pending: string[] = [];
-  const textOf = (content: string | ContentPart[]) =>
-    normalizeContent(content)
-      .filter((part) => part.type === "text" && part.text)
-      .map((part) => part.text as string)
-      .join("\n");
-
-  for (const message of messages) {
-    if (message.role === "system") {
-      const text = textOf(message.content);
-      if (text) pending.push(text);
-      continue;
-    }
-    if (message.role === "user" && pending.length > 0) {
-      const userParts = normalizeContent(message.content);
-      const userText = textOf(userParts);
-      const images = userParts.filter((part) => part.type === "image");
-      out.push({
-        role: "user",
-        content: [{ type: "text", text: `<system>\n${pending.join("\n\n")}\n</system>\n${userText}` }, ...images],
-      });
-      pending = [];
-      continue;
-    }
-    out.push(message);
-  }
-  if (pending.length > 0) {
-    out.push({ role: "user", content: `<system>\n${pending.join("\n\n")}\n</system>` });
-  }
-  return out;
 }
 
 function encodeImageData(img: { mimeType?: string; base64Data?: string }): Buffer {
@@ -144,6 +109,7 @@ function buildGetChatMessageRequest(args: {
   apiKey: string;
   userJwt: string;
   modelUid: string;
+  systemPrompt?: string;
   messages: ChatHistoryItem[];
   tools?: ToolDef[];
   cascadeId: string;
@@ -160,10 +126,10 @@ function buildGetChatMessageRequest(args: {
     requestId: args.requestId,
     triggerId: args.triggerId,
   });
-  const prompts = collapseSystemIntoUser(args.messages).map((message) =>
+  const prompts = args.messages.map((message) =>
     encodeMessage(
       3,
-      encodeChatMessagePrompt(normalizeContent(message.content), SOURCE_BY_ROLE[message.role] ?? 1, {
+      encodeChatMessagePrompt(normalizeContent(message.content), SOURCE_BY_ROLE[message.role], {
         toolCallId: message.role === "tool" ? message.tool_call_id : undefined,
         toolCalls: message.role === "assistant" ? message.tool_calls : undefined,
       }),
@@ -171,6 +137,7 @@ function buildGetChatMessageRequest(args: {
   );
   return Buffer.concat([
     encodeMessage(1, metadata),
+    ...(args.systemPrompt ? [encodeString(2, args.systemPrompt)] : []),
     ...prompts,
     encodeVarintField(7, 5),
     encodeMessage(8, encodeCompletionConfiguration(args.maxOutputTokens)),
@@ -271,6 +238,7 @@ async function* streamChatEvents(args: {
   apiKey: string;
   host: string;
   modelUid: string;
+  systemPrompt?: string;
   messages: ChatHistoryItem[];
   tools?: ToolDef[];
   maxOutputTokens?: number;
@@ -283,6 +251,7 @@ async function* streamChatEvents(args: {
     apiKey: args.apiKey,
     userJwt,
     modelUid: args.modelUid,
+    systemPrompt: args.systemPrompt,
     messages: args.messages,
     tools: args.tools,
     cascadeId: ids.cascadeId,
@@ -482,6 +451,7 @@ export function streamDevin(
         apiKey,
         host,
         modelUid,
+        systemPrompt: mapped.systemPrompt,
         messages: mapped.messages,
         tools: mapped.tools.length > 0 ? mapped.tools : undefined,
         maxOutputTokens: options?.maxTokens,

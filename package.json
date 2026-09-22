@@ -29,7 +29,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "tsx --test test/*.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.2"
   },
   "engines": {

@@ -2,6 +2,7 @@ import {
   collapseSystemMessages,
   getCurrentSystemPrompt,
   getCurrentTools,
+  withoutInitialSystemMessage,
   type Message,
   type Tool,
   type TranscriptContext,
@@ -15,7 +16,7 @@ export interface ContentPart {
 }
 
 export interface ChatHistoryItem {
-  role: "user" | "assistant" | "system" | "tool";
+  role: "user" | "assistant" | "tool";
   content: string | ContentPart[];
   tool_call_id?: string;
   tool_calls?: Array<{ id: string; name: string; arguments: string }>;
@@ -28,6 +29,8 @@ export interface ToolDef {
 }
 
 export interface MappedChat {
+  /** Sent in GetChatMessageRequest.prompt, separately from conversation history. */
+  systemPrompt?: string;
   messages: ChatHistoryItem[];
   tools: ToolDef[];
 }
@@ -47,16 +50,11 @@ function userContent(content: Message["content"]): string | ContentPart[] {
 }
 
 export function mapContextToChat(context: TranscriptContext): MappedChat {
-  // Devin takes one leading system message and knows no mid-conversation system
-  // message, so replay the transcript deltas into the leading one first.
+  // Fold later system updates into the single prompt sent separately to Devin.
   const transcript = collapseSystemMessages(context);
   const systemPrompt = getCurrentSystemPrompt(transcript.messages);
   const messages: ChatHistoryItem[] = [];
-  if (systemPrompt) {
-    messages.push({ role: "system", content: systemPrompt });
-  }
-
-  for (const message of transcript.messages) {
+  for (const message of withoutInitialSystemMessage(transcript.messages)) {
     if (message.role === "user") {
       messages.push({ role: "user", content: userContent(message.content) });
       continue;
@@ -103,5 +101,5 @@ export function mapContextToChat(context: TranscriptContext): MappedChat {
     parameters: tool.parameters,
   }));
 
-  return { messages, tools };
+  return { systemPrompt: systemPrompt || undefined, messages, tools };
 }
