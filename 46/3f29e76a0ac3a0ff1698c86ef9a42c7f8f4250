@@ -1,0 +1,21 @@
+src/stream.ts
+  s_475cfd3af35e1c::t_7db5f283bbc7c7 362
+test/stream-abort.test.mjs
+  s_475cfd3af35e1c::t_267504a6c9cdc6 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "463f29e76a0ac3a0ff1698c86ef9a42c7f8f4250",
+  "prompts": {},
+  "sessions": {
+    "s_475cfd3af35e1c": {
+      "agent_id": {
+        "tool": "devin",
+        "id": "s_475cfd3af35e1c",
+        "model": "unknown"
+      },
+      "human_author": "denispol <19826856+denispol@users.noreply.github.com>"
+    }
+  }
+}
