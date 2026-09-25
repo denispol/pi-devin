@@ -8,10 +8,12 @@ import { catalogCachePath, writeCatalogCache } from "../src/catalog-cache.ts";
 
 const directory = fs.mkdtempSync(join(tmpdir(), "pi-devin-catalog-test-"));
 after(() => fs.rmSync(directory, { recursive: true, force: true }));
-const cli = join(directory, "devin");
+const cli = join(directory, process.platform === "win32" ? "devin.cmd" : "devin");
 const counter = join(directory, "calls");
 const catalog = { families: [{ family_label: "Test", family_uid: "test", slug: "test", variants: [{ model_uid: "test-high", label: "Test high", cost_summary: "$1/MTok In, $2/MTok Out" }] }] };
-fs.writeFileSync(cli, `#!${process.execPath}\nconst fs = require('node:fs');\nfs.appendFileSync(${JSON.stringify(counter)}, 'call\\n');\nsetTimeout(() => { console.log(process.env.TEST_CATALOG); process.exit(Number(process.env.TEST_CLI_EXIT || 0)); }, 30);\n`, { mode: 0o700 });
+const script = join(directory, "catalog.cjs");
+fs.writeFileSync(script, `const fs = require('node:fs');\nfs.appendFileSync(${JSON.stringify(counter)}, 'call\\n');\nsetTimeout(() => { console.log(process.env.TEST_CATALOG); process.exit(Number(process.env.TEST_CLI_EXIT || 0)); }, 30);\n`);
+fs.writeFileSync(cli, process.platform === "win32" ? `@echo off\r\n"${process.execPath}" "${script}"\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${script}"\n`, { mode: 0o700 });
 const originalEnv = { ...process.env };
 process.env.DEVIN_CLI = cli;
 const { default: extension } = await import("../extensions/index.ts");
@@ -28,7 +30,7 @@ function setup(t) {
   delete process.env.TEST_CLI_EXIT;
   fs.writeFileSync(counter, "");
   const read = fs.readFileSync, exists = fs.existsSync;
-  const isCredentials = (path) => String(path).endsWith("devin/credentials.toml");
+  const isCredentials = (path) => String(path).replaceAll("\\", "/").endsWith("devin/credentials.toml");
   t.mock.method(fs, "readFileSync", (path, ...args) => isCredentials(path) ? 'api_key = "synthetic-test-key"\n' : read(path, ...args));
   t.mock.method(fs, "existsSync", (path) => isCredentials(path) || exists(path));
   t.mock.method(console, "warn", () => {});

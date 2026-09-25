@@ -52,8 +52,8 @@ test("checks cache age and future timestamps", () => {
 });
 
 test("uses XDG cache directory when configured", () => {
-  assert.equal(catalogCachePath({ XDG_CACHE_HOME: "/cache" }, "/home/test"), "/cache/pi-devin/models.json");
-  assert.equal(catalogCachePath({}, "/home/test"), "/home/test/.cache/pi-devin/models.json");
+  assert.equal(catalogCachePath({ XDG_CACHE_HOME: "/cache" }, "/home/test"), join("/cache", "pi-devin", "models.json"));
+  assert.equal(catalogCachePath({}, "/home/test"), join("/home/test", ".cache", "pi-devin", "models.json"));
 });
 
 for (const [field, value] of Object.entries({ cost_summary: {}, max_context_tokens: "1000", max_output_tokens: -1, model_uid: "", is_beta: "yes" })) {
