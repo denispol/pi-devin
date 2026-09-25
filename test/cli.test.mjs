@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -54,7 +54,9 @@ test("Windows PATH lookup uses where.exe and reads multiple results", { skip: pr
   process.env.PATH = `${bin};${otherBin};${process.env.PATH}`;
   const located = await whichDevin();
   const probe = spawnSync("where.exe", ["devin.exe"], { encoding: "utf8" });
-  assert.equal(located, binary, JSON.stringify({ status: probe.status, stdout: probe.stdout, stderr: probe.stderr, error: probe.error?.message }));
+  assert.ok(located, JSON.stringify({ status: probe.status, stdout: probe.stdout, stderr: probe.stderr, error: probe.error?.message }));
+  // where.exe expands Windows short paths such as RUNNER~1.
+  assert.equal(realpathSync.native(located), realpathSync.native(binary));
   assert.ok(probe.stdout.trim().split(/\r?\n/).length >= 2);
 });
 
