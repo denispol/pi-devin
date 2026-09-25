@@ -6,20 +6,38 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-const KNOWN_BINS = [
-  process.env.DEVIN_CLI,
-  join(homedir(), ".local/bin/devin"),
-  join(homedir(), ".devin/bin/devin"),
-  "/opt/homebrew/bin/devin",
-  "/usr/local/bin/devin",
-  "/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin/devin",
-].filter((p): p is string => Boolean(p));
+function candidateBins(): string[] {
+  const localAppData = process.env.LOCALAPPDATA ?? join(homedir(), "AppData/Local");
+  return [
+    // Explicit override always wins. Read lazily so a value set after module
+    // load (e.g. by the host process) is still honoured.
+    process.env.DEVIN_CLI,
+    // ── Windows ──────────────────────────────────────────────────────────
+    // Official installer location (%LOCALAPPDATA%\devin\cli\bin\devin.exe)
+    join(localAppData, "devin/cli/bin/devin.exe"),
+    // Devin Desktop (Windsurf-based) bundled CLI, per-user install
+    join(localAppData, "Programs/Devin/resources/app/extensions/windsurf/devin/bin/devin.exe"),
+    // Devin Desktop bundled CLI, machine-wide install
+    process.env.ProgramFiles &&
+      join(process.env.ProgramFiles, "Devin/resources/app/extensions/windsurf/devin/bin/devin.exe"),
+    // Set by the official Windows installer when it completes normally.
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "devin/bin/devin.exe"),
+    // Manual fallback for installs that could not finish while Devin was running.
+    join(homedir(), ".devin-cli/devin.exe"),
+    // ── Unix / macOS ─────────────────────────────────────────────────────
+    join(homedir(), ".local/bin/devin"),
+    join(homedir(), ".devin/bin/devin"),
+    "/opt/homebrew/bin/devin",
+    "/usr/local/bin/devin",
+    "/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin/devin",
+  ].filter((p): p is string => Boolean(p));
+}
 
 let cachedBin: string | null | undefined;
 
 export function findDevinBin(): string | null {
   if (cachedBin !== undefined) return cachedBin;
-  for (const bin of KNOWN_BINS) {
+  for (const bin of candidateBins()) {
     if (existsSync(bin)) {
       cachedBin = bin;
       return bin;
@@ -36,15 +54,24 @@ export function clearDevinBinCache(): void {
 export async function whichDevin(): Promise<string | null> {
   const known = findDevinBin();
   if (known) return known;
-  try {
-    const { stdout } = await execFileAsync("/usr/bin/which", ["devin"], { timeout: 5_000 });
-    const path = stdout.trim();
-    if (path && existsSync(path)) {
-      cachedBin = path;
-      return path;
+  // Windows has no `which`; use `where` and probe the returned paths directly.
+  const isWindows = process.platform === "win32";
+  const locator = isWindows ? "where" : "/usr/bin/which";
+  const candidates = isWindows ? ["devin.exe", "devin.cmd", "devin"] : ["devin"];
+  for (const candidate of candidates) {
+    try {
+      const { stdout } = await execFileAsync(locator, [candidate], { timeout: 5_000 });
+      // `where` may return several lines; take the first existing one.
+      for (const line of stdout.split(/\r?\n/)) {
+        const path = line.trim();
+        if (path && existsSync(path)) {
+          cachedBin = path;
+          return path;
+        }
+      }
+    } catch {
+      // not on PATH
     }
-  } catch {
-    // not on PATH
   }
   return null;
 }
