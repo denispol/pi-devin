@@ -3,6 +3,7 @@ import test from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { clearDevinBinCache, findDevinBin, whichDevin, runDevin } from "../src/cli.ts";
 
 function fixture(t) {
@@ -47,7 +48,9 @@ test("Windows PATH lookup uses where.exe and reads multiple results", { skip: pr
   const bin = join(directory, "path bin"); mkdirSync(bin);
   const binary = join(bin, "devin.exe"); writeFileSync(binary, "");
   process.env.PATH = `${bin};${process.env.PATH}`;
-  assert.equal(await whichDevin(), binary);
+  const located = await whichDevin();
+  const probe = spawnSync("where.exe", ["devin.exe"], { encoding: "utf8" });
+  assert.equal(located, binary, JSON.stringify({ status: probe.status, stdout: probe.stdout, stderr: probe.stderr, error: probe.error?.message }));
 });
 
 test("Windows batch wrappers work in paths with spaces, including inherited stdio", { skip: process.platform !== "win32" }, async (t) => {
