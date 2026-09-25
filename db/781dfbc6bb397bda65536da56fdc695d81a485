@@ -1,0 +1,21 @@
+src/stream.ts
+  s_62b62c236cdef2::t_251e3900f63c04 288-313,315,318-325,361-369
+test/stream-request.test.mjs
+  s_62b62c236cdef2::t_4b412884022c80 196-207,218,228-252,313-415
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "db781dfbc6bb397bda65536da56fdc695d81a485",
+  "prompts": {},
+  "sessions": {
+    "s_62b62c236cdef2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e7e51d61-3b6b-4c03-9bf4-dca70fbd91b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "denispol <19826856+denispol@users.noreply.github.com>"
+    }
+  }
+}
