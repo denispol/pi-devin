@@ -69,6 +69,8 @@ Commands:
 - `/devin-status` — CLI path, version, auth
 - `/devin-refresh` — reload `devin models list --format json`
 
+The model catalog is cached for six hours in `$XDG_CACHE_HOME/pi-devin/models.json` (or `~/.cache/pi-devin/models.json`). A fresh cache avoids the CLI call at startup; an older cache remains available while it refreshes in the background. Set `PI_OFFLINE=1` to skip automatic catalog refreshes. `/devin-refresh` still requests a refresh explicitly.
+
 ## What this is / is not
 
 | This package | Not this package |
