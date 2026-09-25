@@ -284,15 +284,44 @@ async function* streamChatEvents(args: {
       sessionId: ids.sessionId,
       promptId,
     };
-    const replacement = await args.options.onPayload(descriptor, args.model);
-    if (replacement !== undefined) {
-      // Payload replacement is not supported for the binary Connect-RPC body;
-      // a non-undefined return is treated as a deny/mutation request we cannot
-      // honor — refuse rather than silently send the original.
+    // The descriptor is a fixed set of scalar fields. Snapshot the values so we
+    // can distinguish a genuine pass-through / pure observer (no field changed)
+    // from an in-place mutation that would silently diverge from the already-
+    // encoded request. A field-level check is exact here — the descriptor has no
+    // nested objects, functions or symbols, so this cannot be fooled the way a
+    // serialisation-based comparison can.
+    const FIELDS = [
+      "provider", "api", "endpoint", "modelUid", "systemPrompt",
+      "messageCount", "toolCount", "maxOutputTokens", "sessionId", "promptId",
+    ] as const;
+    const before = Object.fromEntries(FIELDS.map((k) => [k, descriptor[k]]));
+    const mutated = () => {
+      // A value change, an added key, or a deleted key is a mutation. Compare
+      // exact key membership — a length-only check would miss delete+add pairs
+      // (e.g. drop undefined systemPrompt, add foo → same count, same values).
+      const keys = Reflect.ownKeys(descriptor);
+      if (keys.length !== FIELDS.length) return true;
+      const known = new Set<string | symbol>(FIELDS);
+      if (keys.some((k) => !known.has(k))) return true;
+      return FIELDS.some((k) => descriptor[k] !== before[k]);
+    };
+    const result = await args.options.onPayload(descriptor, args.model);
+    if (mutated()) {
+      // The callback changed a field — a semantic change we cannot apply to the
+      // binary body, regardless of what it returned. Refuse rather than send the
+      // original bytes silently.
       throw new Error(
-        "devin provider: onPayload returned a replacement payload, which this binary Connect-RPC transport cannot apply. Deny by throwing, or return undefined to allow unchanged.",
+        "devin provider: onPayload mutated the request descriptor; this binary Connect-RPC transport cannot apply a change after encoding. Observe only, or deny by throwing.",
       );
     }
+    if (result !== undefined && result !== descriptor) {
+      // A different object = a replacement request we cannot encode.
+      throw new Error(
+        "devin provider: onPayload returned a replacement payload, which this binary Connect-RPC transport cannot apply. Observe (return undefined or the unchanged descriptor), or deny by throwing.",
+      );
+    }
+    // result is undefined (pure observer) or the unchanged descriptor (the SDK's
+    // pass-through / non-mutating path) — allow.
   }
 
   // Header names are case-insensitive. Strip any caller header (in any casing)
@@ -328,7 +357,15 @@ async function* streamChatEvents(args: {
   if (args.options?.onResponse && args.model) {
     const headers: Record<string, string> = {};
     resp.headers.forEach((v, k) => { headers[k] = v; });
-    await args.options.onResponse({ status: resp.status, headers }, args.model);
+    try {
+      await args.options.onResponse({ status: resp.status, headers }, args.model);
+    } catch (err) {
+      // The request was already sent; do not leak the response body or pretend
+      // this is an unsent request. Release the body, then re-raise so the
+      // caller sees the observation failure (and the already-sent attempt).
+      try { await resp.body?.cancel(); } catch { /* best-effort cleanup */ }
+      throw err;
+    }
   }
   if (!resp.ok) {
     throw new Error(`GetChatMessage HTTP ${resp.status}: ${(await resp.text()).slice(0, 300)}`);

@@ -193,7 +193,18 @@ test("a denied onPayload produces no protected send", async (t) => {
   assert.match(result.errorMessage ?? "", /denied by admission/);
 });
 
-test("onPayload returning a replacement refuses (binary body cannot be rewritten)", async (t) => {
+test("SDK-shaped pass-through onPayload (returns the descriptor unchanged) allows the send", async (t) => {
+  const requests = mockDevin(t);
+  const context = normalizeContext({ systemPrompt: "s", messages: [user("allow me")] });
+  // Mimic the SDK's transformProviderPayload: returns the payload object it was
+  // given, unchanged (the no-handler / non-mutating-observer allow path).
+  await complete(context, {
+    onPayload: (descriptor) => descriptor,
+  });
+  assert.equal(requests.length, 1, "unchanged pass-through must reach the transport");
+});
+
+test("onPayload returning a DIFFERENT object is an unsupported replacement -> refuse", async (t) => {
   let fetchCalls = 0;
   clearCachedUserJwt();
   t.after(clearCachedUserJwt);
@@ -204,7 +215,7 @@ test("onPayload returning a replacement refuses (binary body cannot be rewritten
     fetchCalls += 1;
     return response(Buffer.concat([encodeString(3, "X"), encodeVarintField(5, 0)]));
   });
-  const context = normalizeContext({ systemPrompt: "s", messages: [user("mutate me")] });
+  const context = normalizeContext({ systemPrompt: "s", messages: [user("replace me")] });
   const stream = streamDevin(model, context, {
     apiKey: "synthetic-test-key",
     env: { DEVIN_API_SERVER_URL: "https://devin.invalid" },
@@ -214,7 +225,31 @@ test("onPayload returning a replacement refuses (binary body cannot be rewritten
   const result = await stream.result();
   assert.equal(fetchCalls, 0);
   assert.equal(result.stopReason, "error");
-  assert.match(result.errorMessage ?? "", /cannot apply|refuse/i);
+  assert.match(result.errorMessage ?? "", /cannot apply|replacement/i);
+});
+
+test("onPayload that mutates the descriptor in place is refused (cannot apply to binary body)", async (t) => {
+  let fetchCalls = 0;
+  clearCachedUserJwt();
+  t.after(clearCachedUserJwt);
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (url === "https://devin.invalid/exa.auth_pb.AuthService/GetUserJwt") {
+      return new Response(encodeMessage(1, Buffer.from("eyJtest.jwt")));
+    }
+    fetchCalls += 1;
+    return response(Buffer.concat([encodeString(3, "X"), encodeVarintField(5, 0)]));
+  });
+  const context = normalizeContext({ systemPrompt: "s", messages: [user("sneaky")] });
+  const stream = streamDevin(model, context, {
+    apiKey: "synthetic-test-key",
+    env: { DEVIN_API_SERVER_URL: "https://devin.invalid" },
+    onPayload: (descriptor) => { descriptor.systemPrompt = "INJECTED"; return undefined; },
+  });
+  for await (const _ of stream) { /* drain */ }
+  const result = await stream.result();
+  assert.equal(fetchCalls, 0, "in-place mutation must not silently send the original");
+  assert.equal(result.stopReason, "error");
+  assert.match(result.errorMessage ?? "", /mutated|cannot apply/i);
 });
 
 test("onResponse observes the HTTP response and onPayload sees the descriptor", async (t) => {
@@ -274,4 +309,107 @@ test("caller headers cannot override required Connect framing (any casing)", asy
   assert.equal(sentLower["connect-protocol-version"], "1");
   assert.equal(sentLower["x-custom"], "ok");
   assert.equal(sentLower["connect-content-encoding"], "gzip");
+});
+
+test("a throwing onResponse still releases the response body (N04)", async (t) => {
+  let cancelled = false;
+  clearCachedUserJwt();
+  t.after(clearCachedUserJwt);
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (url === "https://devin.invalid/exa.auth_pb.AuthService/GetUserJwt") {
+      return new Response(encodeMessage(1, Buffer.from("eyJtest.jwt")));
+    }
+    const body = Buffer.concat([frameConnectStream(Buffer.concat([encodeString(3, "X"), encodeVarintField(5, 0)]), false), Buffer.from([2,0,0,0,2,123,125])]);
+    const stream = new ReadableStream({
+      start(c) { c.enqueue(body); c.close(); },
+      cancel() { cancelled = true; },
+    });
+    return new Response(stream, { status: 200 });
+  });
+  const context = normalizeContext({ systemPrompt: "s", messages: [user("hi")] });
+  const s = streamDevin(model, context, {
+    apiKey: "synthetic-test-key",
+    env: { DEVIN_API_SERVER_URL: "https://devin.invalid" },
+    onResponse: () => { throw new Error("observer failure"); },
+  });
+  for await (const _ of s) { /* drain */ }
+  const result = await s.result();
+  assert.equal(result.stopReason, "error");
+  assert.match(result.errorMessage ?? "", /observer failure/);
+  assert.equal(cancelled, true, "response body must be released on observer failure");
+});
+
+test("deleting an optional descriptor field is detected as mutation (not all-values-equal)", async (t) => {
+  let fetchCalls = 0;
+  clearCachedUserJwt();
+  t.after(clearCachedUserJwt);
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (url === "https://devin.invalid/exa.auth_pb.AuthService/GetUserJwt") {
+      return new Response(encodeMessage(1, Buffer.from("eyJtest.jwt")));
+    }
+    fetchCalls += 1;
+    return response(Buffer.concat([encodeString(3, "X"), encodeVarintField(5, 0)]));
+  });
+  const context = normalizeContext({ systemPrompt: "s", messages: [user("hi")] });
+  const stream = streamDevin(model, context, {
+    apiKey: "synthetic-test-key",
+    env: { DEVIN_API_SERVER_URL: "https://devin.invalid" },
+    onPayload: (descriptor) => { delete descriptor.systemPrompt; return undefined; },
+  });
+  for await (const _ of stream) { /* drain */ }
+  const result = await stream.result();
+  assert.equal(fetchCalls, 0, "deleting a field must be treated as a mutation -> refuse");
+  assert.equal(result.stopReason, "error");
+});
+
+test("delete+add preserves key count but is still detected as mutation", async (t) => {
+  let fetchCalls = 0;
+  clearCachedUserJwt();
+  t.after(clearCachedUserJwt);
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (url === "https://devin.invalid/exa.auth_pb.AuthService/GetUserJwt") {
+      return new Response(encodeMessage(1, Buffer.from("eyJtest.jwt")));
+    }
+    fetchCalls += 1;
+    return response(Buffer.concat([encodeString(3, "X"), encodeVarintField(5, 0)]));
+  });
+  const context = normalizeContext({ systemPrompt: "s", messages: [user("hi")] });
+  const stream = streamDevin(model, context, {
+    apiKey: "synthetic-test-key",
+    env: { DEVIN_API_SERVER_URL: "https://devin.invalid" },
+    onPayload: (descriptor) => { delete descriptor.systemPrompt; descriptor.injected = "x"; return undefined; },
+  });
+  for await (const _ of stream) { /* drain */ }
+  const result = await stream.result();
+  assert.equal(fetchCalls, 0, "delete+add at constant key count must still refuse");
+  assert.equal(result.stopReason, "error");
+});
+
+test("a symbol or non-enumerable added key is detected as mutation", async (t) => {
+  for (const sneakyAdd of [
+    (d) => { d[Symbol.for("x")] = "v"; },                          // symbol key
+    (d) => { Object.defineProperty(d, "hidden", { value: 1 }); }, // non-enumerable
+  ]) {
+    let fetchCalls = 0;
+    clearCachedUserJwt();
+    t.after(clearCachedUserJwt);
+    const restore = t.mock.method(globalThis, "fetch", async (url) => {
+      if (url === "https://devin.invalid/exa.auth_pb.AuthService/GetUserJwt") {
+        return new Response(encodeMessage(1, Buffer.from("eyJtest.jwt")));
+      }
+      fetchCalls += 1;
+      return response(Buffer.concat([encodeString(3, "X"), encodeVarintField(5, 0)]));
+    });
+    const context = normalizeContext({ systemPrompt: "s", messages: [user("hi")] });
+    const stream = streamDevin(model, context, {
+      apiKey: "synthetic-test-key",
+      env: { DEVIN_API_SERVER_URL: "https://devin.invalid" },
+      onPayload: (descriptor) => { sneakyAdd(descriptor); return undefined; },
+    });
+    for await (const _ of stream) { /* drain */ }
+    const result = await stream.result();
+    assert.equal(fetchCalls, 0, "symbol/non-enumerable added key must be treated as mutation");
+    assert.equal(result.stopReason, "error");
+    restore.mock.restore();
+  }
 });
