@@ -8,10 +8,12 @@ import { clearDevinBinCache, findDevinBin, whichDevin, runDevin } from "../src/c
 
 function fixture(t) {
   const directory = mkdtempSync(join(tmpdir(), "pi devin cli "));
-  const original = { ...process.env };
+  // Windows environment lookups ignore case; a spread object does not.
+  const keys = ["DEVIN_CLI", "LOCALAPPDATA", "ProgramFiles", "PATH"];
+  const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   clearDevinBinCache();
   t.after(() => {
-    for (const key of ["DEVIN_CLI", "LOCALAPPDATA", "ProgramFiles", "PATH"]) {
+    for (const key of keys) {
       if (original[key] === undefined) delete process.env[key]; else process.env[key] = original[key];
     }
     clearDevinBinCache(); rmSync(directory, { recursive: true, force: true });
@@ -47,10 +49,13 @@ test("Windows PATH lookup uses where.exe and reads multiple results", { skip: pr
   process.env.LOCALAPPDATA = directory; process.env.ProgramFiles = directory;
   const bin = join(directory, "path bin"); mkdirSync(bin);
   const binary = join(bin, "devin.exe"); writeFileSync(binary, "");
-  process.env.PATH = `${bin};${process.env.PATH}`;
+  const otherBin = join(directory, "other bin"); mkdirSync(otherBin);
+  writeFileSync(join(otherBin, "devin.exe"), "");
+  process.env.PATH = `${bin};${otherBin};${process.env.PATH}`;
   const located = await whichDevin();
   const probe = spawnSync("where.exe", ["devin.exe"], { encoding: "utf8" });
   assert.equal(located, binary, JSON.stringify({ status: probe.status, stdout: probe.stdout, stderr: probe.stderr, error: probe.error?.message }));
+  assert.ok(probe.stdout.trim().split(/\r?\n/).length >= 2);
 });
 
 test("Windows batch wrappers work in paths with spaces, including inherited stdio", { skip: process.platform !== "win32" }, async (t) => {
