@@ -359,7 +359,7 @@ async function* streamChatEvents(args: {
       // ignore
     }
     try {
-      void resp.body?.cancel();
+      await resp.body?.cancel();
     } catch {
       // ignore
     }
