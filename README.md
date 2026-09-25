@@ -27,6 +27,8 @@ The CLI binary is resolved in this order:
 3. Devin.app's bundled `devin` binary
 4. `which devin`
 
+On Windows, discovery checks the CLI installer and Devin Desktop locations, then uses `where.exe` to search PATH. Native executables and `.cmd`/`.bat` wrappers are supported, including paths with spaces. `DEVIN_CLI` takes precedence on every platform.
+
 ## Install
 
 From git:
